@@ -273,6 +273,21 @@ frappe.query_reports["Accounts Payable with Payment Management"] = {
 
 		},
 		{
+			fieldname: "due_entries",
+			label: __("Due Entries"),
+			fieldtype: "Check",
+			on_change: function () {
+				total_amount = 0;
+
+				frappe.query_report.refresh().then(() => {
+					unchecked_all_checkbox();
+				}
+				);
+
+			},
+			default: 1,
+		},
+		{
 			fieldname: "based_on_payment_terms",
 			label: __("Based On Payment Terms"),
 			fieldtype: "Check",
