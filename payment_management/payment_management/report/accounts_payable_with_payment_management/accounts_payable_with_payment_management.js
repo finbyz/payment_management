@@ -96,6 +96,23 @@ frappe.query_reports["Accounts Payable with Payment Management"] = {
 			},
 		},
 		{
+			fieldname: "company_bank_account",
+			label: __("Company Bank Account"),
+			fieldtype: "Link", 
+			options: "Bank Account",
+			on_change: function () {
+				updateBankBalanceCards();
+			},
+			get_query: () => {
+				return {
+					filters: [
+						["is_company_account", "=", 1],
+						["company", "is", "set"]
+					]
+				};
+			},
+		},
+		{
 			fieldname: "ageing_based_on",
 			label: __("Ageing Based On"),
 			fieldtype: "Select",
@@ -255,6 +272,12 @@ frappe.query_reports["Accounts Payable with Payment Management"] = {
 
 			},
 
+		},
+        {
+			"fieldname": "branch",
+			"label": __("Branch"),
+			"fieldtype": "Link",
+			"options": "Branch"
 		},
 		{
 			fieldname: "group_by_party",
@@ -459,23 +482,93 @@ function disable_checkbox_column() {
 
 }
 
-function set_card_total_amount(amount) {
+async function updateBankBalanceCards() {
+	var container = $(".report-summary");
+	container.empty();
+
 	var style = document.createElement('style');
 	style.innerHTML = '.flex_importnat_report{display: flex !important;}'
 	document.getElementsByTagName('head')[0].appendChild(style);
 	$(".report-summary").addClass('flex_importnat_report');
-	var container = $(".report-summary");
-	var card = $(`
-			<div class="card" style="width: 18rem;">
+
+	var company_bank_account = frappe.query_report.get_filter_value("company_bank_account");
+	
+	if (company_bank_account) {
+		var account_response = await frappe.db.get_value("Bank Account", company_bank_account, "account");
+		var account = account_response.message.account;
+		
+		const response = await frappe.call({
+			method: 'frappe.client.get_value',
+			args: {
+				doctype: 'GL Entry',
+				filters: {
+					'account': account
+				},
+				fieldname: ['sum(debit) - sum(credit) as balance'],
+			}
+		});
+
+		const bank_balance = response.message.balance || 0;
+		const remaining_balance = bank_balance - total_amount;
+		
+		// Bank Balance Card
+		var bankBalanceCard = $(`
+			<div class="card" style="width: 18rem; margin-right: 10px;">
 				<div class="card-body">
-					<h5 class="card-title">Total Amount</h5>
-					<p class="card-text total_amount_invoice">${amount.toLocaleString('en-US')}</p>
+					<h5 class="card-title">Bank Balance</h5>
+					<p class="card-text bank_balance">${bank_balance.toLocaleString('en-US')}</p>
 				</div>
 			</div>
-			`);
-	container.empty();
-	container.append(card);
+		`);
+
+		// Selected Amount Card
+		var selectedAmountCard = $(`
+			<div class="card" style="width: 18rem; margin-right: 10px;">
+				<div class="card-body">
+					<h5 class="card-title">Selected Amount</h5>
+					<p class="card-text total_amount_invoice">${total_amount.toLocaleString('en-US')}</p>
+				</div>
+			</div>
+		`);
+
+		// Remaining Balance Card
+		var remainingBalanceCard = $(`
+			<div class="card" style="width: 18rem;">
+				<div class="card-body">
+					<h5 class="card-title">Remaining Balance</h5>
+					<p class="card-text remaining_balance">${remaining_balance.toLocaleString('en-US')}</p>
+				</div>
+			</div>
+		`);
+
+		container.append(bankBalanceCard, selectedAmountCard, remainingBalanceCard);
+	} else {
+		// Show only selected amount card when no bank account is selected
+		var selectedAmountCard = $(`
+			<div class="card" style="width: 18rem;">
+				<div class="card-body">
+					<h5 class="card-title">Selected Amount</h5>
+					<p class="card-text total_amount_invoice">${total_amount.toLocaleString('en-US')}</p>
+				</div>
+			</div>
+		`);
+		container.append(selectedAmountCard);
+	}
 }
+
+function set_card_total_amount(amount) {
+	// Ensure amount is a number and not NaN
+	amount = parseFloat(amount) || 0;
+	
+	$('.total_amount_invoice').text(amount.toLocaleString('en-US'));
+	
+	if (frappe.query_report.get_filter_value("company_bank_account")) {
+		const bank_balance = parseFloat($('.bank_balance').text().replace(/,/g, '')) || 0;
+		const remaining_balance = bank_balance - amount;
+		$('.remaining_balance').text(remaining_balance.toLocaleString('en-US'));
+	}
+}
+
 function unchecked_all_checkbox() {
 	frappe.query_report.data.forEach((row, index) => {
 		let node = `.dt-row.dt-row-${index}.vrow`;
@@ -493,28 +586,23 @@ function listner_to_checkbox() {
 			let node = `.dt-row.dt-row-${index}.vrow`;
 			let checkbox = $(node).find("[type='checkbox']");
 
-			checkbox.off('change').on('change', (function () {
+			checkbox.off('change').on('change', (async function () {
 				if (this.checked) {
-					total_amount += row.invoice_grand_total;
-					if (total_amount < 0) {
-						total_amount = 0
-					}
-					set_card_total_amount(total_amount);
+					// Add amount when checked
+					total_amount += (row.invoice_grand_total || 0);
 				} else {
-					total_amount -= row.invoice_grand_total;
-					if (total_amount < 0) {
-						total_amount = 0
-					}
-					set_card_total_amount(total_amount);
+					// Subtract amount when unchecked
+					total_amount -= (row.invoice_grand_total || 0);
 				}
-			})
-			);
-
+				
+				// Ensure total_amount doesn't go below 0
+				total_amount = Math.max(0, total_amount);
+				
+				await set_card_total_amount(total_amount);
+			}));
 		}
 	});
-
 }
-
 
 $(function () {
 	frappe.query_report.page.add_action_item('Create Payment Request', function () {
@@ -565,10 +653,12 @@ $(function () {
 		});
 	}, __("Action"));
 
+	// Initial setup of cards
+	updateBankBalanceCards();
+
 	setInterval(function () {
 		try {
 			disable_checkbox_column();
-			set_card_total_amount(total_amount);
 			listner_to_checkbox();
 		} catch (error) {
 			console.log(error);
