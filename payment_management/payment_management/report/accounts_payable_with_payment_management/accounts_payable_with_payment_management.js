@@ -1,6 +1,12 @@
 // Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
 // License: GNU General Public License v3. See license.txt
 
+const commonOnChange = () => {
+	frappe.query_report.refresh().then(() => {
+		unchecked_all_checkbox();
+	});
+};
+
 frappe.query_reports["Accounts Payable with Payment Management"] = {
 	get_datatable_options(options) {
 		options.checkboxColumn = true;
@@ -15,31 +21,14 @@ frappe.query_reports["Accounts Payable with Payment Management"] = {
 			options: "Company",
 			reqd: 1,
 			default: frappe.defaults.get_user_default("Company"),
-			on_change: function () {
-				total_amount = 0;
-
-				frappe.query_report.refresh().then(() => {
-					unchecked_all_checkbox();
-				}
-				);
-
-			},
+			on_change: commonOnChange
 		},
 		{
 			fieldname: "report_date",
 			label: __("Posting Date"),
 			fieldtype: "Date",
 			default: frappe.datetime.get_today(),
-			on_change: function () {
-				total_amount = 0;
-
-				frappe.query_report.refresh().then(() => {
-					unchecked_all_checkbox();
-				}
-				);
-
-			},
-
+			on_change: commonOnChange
 		},
 		{
 			fieldname: "finance_book",
@@ -52,23 +41,12 @@ frappe.query_reports["Accounts Payable with Payment Management"] = {
 			label: __("Cost Center"),
 			fieldtype: "Link",
 			options: "Cost Center",
-			get_query: () => {
-				var company = frappe.query_report.get_filter_value("company");
-				return {
-					filters: {
-						company: company,
-					},
-				};
-			},
-			on_change: function () {
-				total_amount = 0;
-
-				frappe.query_report.refresh().then(() => {
-					unchecked_all_checkbox();
+			get_query: () => ({
+				filters: {
+					company: frappe.query_report.get_filter_value("company")
 				}
-				);
-
-			},
+			}),
+			on_change: commonOnChange
 		},
 		{
 			fieldname: "party_account",
@@ -448,62 +426,59 @@ var total_amount = 0;
 function disable_checkbox_column() {
 	frappe.query_report.data.forEach((row, index) => {
 		if (!row.voucher_no || row.outstanding <= 0) {
-			let node = `.dt-row.dt-row-${index}.vrow`;
-			$(node).find("[type='checkbox']").prop("disabled", true);
+			$(`.dt-row.dt-row-${index}.vrow [type='checkbox']`).prop("disabled", true);
 		}
 	});
-	// Selecting with jQuery
-	let all_checkbox = $(".dt-cell__content.dt-cell__content--header-0");
-	all_checkbox = all_checkbox.find("[type='checkbox']")
-	all_checkbox.off('change').change(function () {
-		total_amount = 0;
-		if (this.checked) {
-			frappe.query_report.data.forEach((row, index) => {
-				let node = `.dt-row.dt-row-${index}.vrow`;
-				if (row.voucher_no != undefined && row.invoice_grand_total) {
-					$(node).find("[type='checkbox']").prop("checked", true);
-					total_amount += row.invoice_grand_total;
-				}
-				else {
-					$(node).find("[type='checkbox']").prop("checked", false);
-				}
-			});
-		}
-		else {
-			frappe.query_report.data.forEach((row, index) => {
-				let node = `.dt-row.dt-row-${index}.vrow`;
-				$(node).find("[type='checkbox']").prop("checked", false);
-			});
-		}
-		let $totalElement = $('.total_amount_invoice');
-		$totalElement.text(total_amount);
-	}
-	);
 
+	const all_checkbox = $(".dt-cell__content.dt-cell__content--header-0 [type='checkbox']");
+	all_checkbox.off('change').on('change', function() {
+		total_amount = 0;
+		frappe.query_report.data.forEach((row, index) => {
+			const checkbox = $(`.dt-row.dt-row-${index}.vrow [type='checkbox']`);
+			if (this.checked && row.voucher_no && row.invoice_grand_total) {
+				checkbox.prop("checked", true);
+				total_amount += row.invoice_grand_total;
+			} else {
+				checkbox.prop("checked", false);
+			}
+		});
+		set_card_total_amount(total_amount);
+	});
 }
 
 async function updateBankBalanceCards() {
-	var container = $(".report-summary");
+	const container = $(".report-summary");
 	container.empty();
 
-	var style = document.createElement('style');
-	style.innerHTML = '.flex_importnat_report{display: flex !important;}'
-	document.getElementsByTagName('head')[0].appendChild(style);
-	$(".report-summary").addClass('flex_importnat_report');
+	// Add flex style
+	if (!document.querySelector('.flex_importnat_report_style')) {
+		const style = document.createElement('style');
+		style.id = 'flex_importnat_report_style';
+		style.innerHTML = '.flex_importnat_report{display: flex !important;}';
+		document.head.appendChild(style);
+	}
+	container.addClass('flex_importnat_report');
 
-	var company_bank_account = frappe.query_report.get_filter_value("company_bank_account");
+	const createCard = (title, amount) => `
+		<div class="card" style="width: 18rem; margin-right: 10px;">
+			<div class="card-body">
+				<h5 class="card-title">${title}</h5>
+				<p class="card-text ${title.toLowerCase().replace(/\s+/g, '_')}">${amount.toLocaleString('en-US')}</p>
+			</div>
+		</div>
+	`;
+
+	const company_bank_account = frappe.query_report.get_filter_value("company_bank_account");
 	
 	if (company_bank_account) {
-		var account_response = await frappe.db.get_value("Bank Account", company_bank_account, "account");
-		var account = account_response.message.account;
+		const account_response = await frappe.db.get_value("Bank Account", company_bank_account, "account");
+		const account = account_response.message.account;
 		
 		const response = await frappe.call({
 			method: 'frappe.client.get_value',
 			args: {
 				doctype: 'GL Entry',
-				filters: {
-					'account': account
-				},
+				filters: { account },
 				fieldname: ['sum(debit) - sum(credit) as balance'],
 			}
 		});
@@ -511,161 +486,118 @@ async function updateBankBalanceCards() {
 		const bank_balance = response.message.balance || 0;
 		const remaining_balance = bank_balance - total_amount;
 		
-		// Bank Balance Card
-		var bankBalanceCard = $(`
-			<div class="card" style="width: 18rem; margin-right: 10px;">
-				<div class="card-body">
-					<h5 class="card-title">Bank Balance</h5>
-					<p class="card-text bank_balance">${bank_balance.toLocaleString('en-US')}</p>
-				</div>
-			</div>
-		`);
-
-		// Selected Amount Card
-		var selectedAmountCard = $(`
-			<div class="card" style="width: 18rem; margin-right: 10px;">
-				<div class="card-body">
-					<h5 class="card-title">Selected Amount</h5>
-					<p class="card-text total_amount_invoice">${total_amount.toLocaleString('en-US')}</p>
-				</div>
-			</div>
-		`);
-
-		// Remaining Balance Card
-		var remainingBalanceCard = $(`
-			<div class="card" style="width: 18rem;">
-				<div class="card-body">
-					<h5 class="card-title">Remaining Balance</h5>
-					<p class="card-text remaining_balance">${remaining_balance.toLocaleString('en-US')}</p>
-				</div>
-			</div>
-		`);
-
-		container.append(bankBalanceCard, selectedAmountCard, remainingBalanceCard);
+		container.append(
+			createCard("Bank Balance", bank_balance),
+			createCard("Selected Amount", total_amount),
+			createCard("Remaining Balance", remaining_balance)
+		);
 	} else {
-		// Show only selected amount card when no bank account is selected
-		var selectedAmountCard = $(`
-			<div class="card" style="width: 18rem;">
-				<div class="card-body">
-					<h5 class="card-title">Selected Amount</h5>
-					<p class="card-text total_amount_invoice">${total_amount.toLocaleString('en-US')}</p>
-				</div>
-			</div>
-		`);
-		container.append(selectedAmountCard);
+		container.append(createCard("Selected Amount", total_amount));
 	}
 }
 
 function set_card_total_amount(amount) {
-	// Ensure amount is a number and not NaN
-	amount = parseFloat(amount) || 0;
-	
+	amount = Math.max(0, parseFloat(amount) || 0);
 	$('.total_amount_invoice').text(amount.toLocaleString('en-US'));
-	
-	if (frappe.query_report.get_filter_value("company_bank_account")) {
+	$('.selected_amount').text(amount.toLocaleString('en-US'));
+	const company_bank_account = frappe.query_report.get_filter_value("company_bank_account");
+	if (company_bank_account) {
 		const bank_balance = parseFloat($('.bank_balance').text().replace(/,/g, '')) || 0;
-		const remaining_balance = bank_balance - amount;
-		$('.remaining_balance').text(remaining_balance.toLocaleString('en-US'));
+		$('.remaining_balance').text((bank_balance - amount).toLocaleString('en-US'));
 	}
 }
 
 function unchecked_all_checkbox() {
-	frappe.query_report.data.forEach((row, index) => {
-		let node = `.dt-row.dt-row-${index}.vrow`;
-		$(node).find("[type='checkbox']").prop("checked", false);
-	});
-	document.querySelectorAll(".dt-row--highlight").forEach((row) => {
-		row.classList.remove("dt-row--highlight");
-	}
-	);
+	$(".dt-row.vrow [type='checkbox']").prop("checked", false);
+	$(".dt-row--highlight").removeClass("dt-row--highlight");
+	total_amount = 0;
+	set_card_total_amount(0);
 }
 
 function listner_to_checkbox() {
 	frappe.query_report.data.forEach((row, index) => {
-		if (row.voucher_no) {
-			let node = `.dt-row.dt-row-${index}.vrow`;
-			let checkbox = $(node).find("[type='checkbox']");
+		if (!row.voucher_no) return;
 
-			checkbox.off('change').on('change', (async function () {
-				if (this.checked) {
-					// Add amount when checked
-					total_amount += (row.invoice_grand_total || 0);
-				} else {
-					// Subtract amount when unchecked
-					total_amount -= (row.invoice_grand_total || 0);
-				}
-				
-				// Ensure total_amount doesn't go below 0
-				total_amount = Math.max(0, total_amount);
-				
-				await set_card_total_amount(total_amount);
-			}));
-		}
+		const checkbox = $(`.dt-row.dt-row-${index}.vrow [type='checkbox']`);
+		checkbox.off('change').on('change', function() {
+			total_amount += this.checked ? (row.invoice_grand_total || 0) : -(row.invoice_grand_total || 0);
+			total_amount = Math.max(0, total_amount);
+			set_card_total_amount(total_amount);
+		});
 	});
 }
 
-$(function () {
-	frappe.query_report.page.add_action_item('Create Payment Request', function () {
-		const selected_rows = frappe.query_report.get_checked_items();
-		if (selected_rows.length === 0) {
-			frappe.msgprint(__("Please select at least one row to create payment request."));
-			return;
-		}
-		frappe.call({
-			method: 'payment_management.api.create_payment_request',
-			args: {
-				"selected_rows": selected_rows,
-				"company": frappe.query_report.get_filter_value("company"),
-			},
-			callback: function (r) {
-				if (r.message.success) {
-					frappe.msgprint(r.message.success.join('<br>'));
-					frappe.msgprint(r.message.error.join('<br>'));
-				}
-				else{
-					frappe.msgprint(r.message.error.join('<br>'));
-				}
+$(function() {
+	const initializeReport = () => {
+		frappe.query_report.page.add_action_item('Create Payment Request', async function() {
+			const selected_rows = frappe.query_report.get_checked_items();
+			if (selected_rows.length === 0) {
+				frappe.msgprint(__("Please select at least one row to create payment request."));
+				return;
 			}
-		});
-	}, __("Action"));
-	frappe.query_report.page.add_action_item('Create Payment Entry', function () {
-		const selected_rows = frappe.query_report.get_checked_items();
-		console.log('selected_rows', selected_rows);
-		if (selected_rows.length === 0) {
-			frappe.msgprint(__("Please select at least one row to create payment entry."));
-			return;
-		}
-		frappe.call({
-			method: 'payment_management.api.create_payment_entry',
-			args: {
-				"selected_rows": selected_rows,
-				"company": frappe.query_report.get_filter_value("company"),
-			},
-			callback: function (r) {
-				if (r.message.success) {
-					frappe.msgprint(r.message.success.join('<br>'));
-					frappe.msgprint(r.message.error.join('<br>'));
+
+			const result = await frappe.call({
+				method: 'payment_management.api.create_payment_request',
+				args: {
+					selected_rows,
+					company: frappe.query_report.get_filter_value("company"),
 				}
-				else{
-					frappe.msgprint(r.message.error.join('<br>'));
-				}
+			});
+
+			if (result.message.success) {
+				frappe.msgprint([
+					...result.message.success,
+					...result.message.error
+				].join('<br>'));
+			} else {
+				frappe.msgprint(result.message.error.join('<br>'));
 			}
-		});
-	}, __("Action"));
+		}, __("Action"));
 
-	// Initial setup of cards
-	updateBankBalanceCards();
+		frappe.query_report.page.add_action_item('Create Payment Entry', async function() {
+			const selected_rows = frappe.query_report.get_checked_items();
+			if (selected_rows.length === 0) {
+				frappe.msgprint(__("Please select at least one row to create payment entry."));
+				return;
+			}
 
-	setInterval(function () {
-		try {
-			disable_checkbox_column();
-			listner_to_checkbox();
-		} catch (error) {
-			console.log(error);
-		}
-	}, 300);
-	frappe.query_report.$chart.remove()
+			const result = await frappe.call({
+				method: 'payment_management.api.create_payment_entry',
+				args: {
+					selected_rows,
+					company: frappe.query_report.get_filter_value("company"),
+				}
+			});
 
+			if (result.message.success) {
+				frappe.msgprint([
+					...result.message.success,
+					...result.message.error
+				].join('<br>'));
+			} else {
+				frappe.msgprint(result.message.error.join('<br>'));
+			}
+		}, __("Action"));
+
+		updateBankBalanceCards();
+
+		const updateInterval = setInterval(() => {
+			try {
+				disable_checkbox_column();
+				listner_to_checkbox();
+			} catch (error) {
+				console.error('Error updating checkboxes:', error);
+			}
+		}, 300);
+
+		// Cleanup on page unload
+		$(window).on('unload', () => clearInterval(updateInterval));
+	};
+
+	initializeReport();
+	if (frappe.query_report.$chart) {
+		frappe.query_report.$chart.remove();
+	}
 });
 
 
