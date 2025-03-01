@@ -86,7 +86,7 @@ def create_payment_entry(selected_rows,company):
                     "reference_name": row["voucher_no"],
                     "total_amount": row["total_due"],
                     "outstanding_amount": row["outstanding"],
-                    "allocated_amount": row["invoiced"],
+                    "allocated_amount": row["outstanding"],
                 }
             )
 

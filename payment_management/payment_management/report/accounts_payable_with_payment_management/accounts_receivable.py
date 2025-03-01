@@ -47,7 +47,7 @@ class ReceivablePayableReport(_ReceivablePayableReport):
         )
 
         if self.filters.get("due_entries"):
-            query = query.where((ple.due_date.lte(self.filters.get("report_date")) | (ple.due_date.isnull()) | (ple.due_date == '')))
+            query = query.where((ple.due_date.lte(self.filters.get("report_date")) | (ple.due_date.isnull()) | (ple.due_date == '') ))
 
 
         if self.filters.get("show_remarks"):
