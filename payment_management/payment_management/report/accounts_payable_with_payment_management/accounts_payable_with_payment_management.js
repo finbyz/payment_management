@@ -435,9 +435,9 @@ function disable_checkbox_column() {
 		total_amount = 0;
 		frappe.query_report.data.forEach((row, index) => {
 			const checkbox = $(`.dt-row.dt-row-${index}.vrow [type='checkbox']`);
-			if (this.checked && row.voucher_no && row.invoice_grand_total) {
+			if (this.checked && row.voucher_no && row.outstanding) {
 				checkbox.prop("checked", true);
-				total_amount += row.invoice_grand_total;
+				total_amount += row.outstanding;
 			} else {
 				checkbox.prop("checked", false);
 			}
