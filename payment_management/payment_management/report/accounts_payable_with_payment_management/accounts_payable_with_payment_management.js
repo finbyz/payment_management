@@ -520,7 +520,7 @@ function listner_to_checkbox() {
 
 		const checkbox = $(`.dt-row.dt-row-${index}.vrow [type='checkbox']`);
 		checkbox.off('change').on('change', function() {
-			total_amount += this.checked ? (row.invoice_grand_total || 0) : -(row.invoice_grand_total || 0);
+			total_amount += this.checked ? (row.outstanding || 0) : -(row.outstanding || 0);
 			total_amount = Math.max(0, total_amount);
 			set_card_total_amount(total_amount);
 		});
