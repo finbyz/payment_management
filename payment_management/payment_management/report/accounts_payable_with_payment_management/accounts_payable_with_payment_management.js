@@ -446,6 +446,22 @@ function disable_checkbox_column() {
 	});
 }
 
+
+async function getAccountBalance(account) {
+    const response = await frappe.call({
+        method: 'frappe.client.get_list',
+        args: {
+            doctype: 'GL Entry',
+            filters: { account },
+            fields: ['debit', 'credit']
+        }
+    });
+
+    // Compute balance manually
+    let balance = response.message.reduce((acc, entry) => acc + (entry.debit - entry.credit), 0);
+    
+    return balance;
+}
 async function updateBankBalanceCards() {
 	const container = $(".report-summary");
 	container.empty();
@@ -474,16 +490,8 @@ async function updateBankBalanceCards() {
 		const account_response = await frappe.db.get_value("Bank Account", company_bank_account, "account");
 		const account = account_response.message.account;
 		
-		const response = await frappe.call({
-			method: 'frappe.client.get_value',
-			args: {
-				doctype: 'GL Entry',
-				filters: { account },
-				fieldname: ['sum(debit) - sum(credit) as balance'],
-			}
-		});
+		const bank_balance = await getAccountBalance(account) 
 
-		const bank_balance = response.message.balance || 0;
 		const remaining_balance = bank_balance - total_amount;
 		
 		container.append(
