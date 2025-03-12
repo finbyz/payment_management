@@ -90,10 +90,7 @@ def create_payment_entry(selected_rows,company):
                 {
                     "total_amount": row["total_due"],
                     "outstanding_amount": row["outstanding"],
-                    "reference_doctype": row.get("voucher_type"),
                     "allocated_amount": row["outstanding"],
-                    "reference_name": row["voucher_no"],
-                    "reference_doctype": row["voucher_type"],
                 }
             )
 
