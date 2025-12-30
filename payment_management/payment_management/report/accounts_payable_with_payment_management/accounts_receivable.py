@@ -68,6 +68,11 @@ class ReceivablePayableReport(_ReceivablePayableReport):
         self.invoice_details = frappe._dict()
         report_date = self.filters.get('report_date')
         due_condition = f"and due_date <= '{report_date}'" if self.filters.get('due_entries') else ""
+        pi_due_condition = (
+            f"and ps.due_date <= '{report_date}'"
+            if self.filters.get("due_entries")
+            else ""
+        )
         if self.account_type == "Receivable":
             # nosemgrep
             si_list = frappe.db.sql(
@@ -105,13 +110,22 @@ class ReceivablePayableReport(_ReceivablePayableReport):
             # nosemgrep
             data = frappe.db.sql(
                 f"""
-                select name, due_date, bill_no, bill_date
-                from `tabPurchase Invoice`
-                where
-                    posting_date <= %s
-                    and company = %s
-                    and docstatus = 1 {due_condition}
-            """,
+                SELECT
+                    pi.name,
+                    ps.due_date,
+                    ps.payment_term,
+                    pi.bill_no,
+                    pi.bill_date
+                FROM `tabPurchase Invoice` pi
+                INNER JOIN `tabPayment Schedule` ps
+                    ON ps.parent = pi.name
+                    AND ps.parenttype = 'Purchase Invoice'
+                WHERE
+                    pi.posting_date <= %s
+                    AND pi.company = %s
+                    AND pi.docstatus = 1
+                    {pi_due_condition}
+                """,
                 (self.filters.report_date, self.filters.company),
                 as_dict=1,
             )
