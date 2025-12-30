@@ -49,7 +49,6 @@ class ReceivablePayableReport(_ReceivablePayableReport):
         if self.filters.get("due_entries"):
             query = query.where((ple.due_date.lte(self.filters.get("report_date")) | (ple.due_date.isnull()) | (ple.due_date == '') ))
 
-
         if self.filters.get("show_remarks"):
             if remarks_length := frappe.db.get_single_value(
                 "Accounts Settings", "receivable_payable_remarks_length"
@@ -63,6 +62,29 @@ class ReceivablePayableReport(_ReceivablePayableReport):
         else:
             query = query.orderby(self.ple.posting_date, self.ple.party)
         self.ple_entries = query.run(as_dict=True)
+
+    def fetch_ple_in_buffered_cursor(self):
+        # Use custom get_ple_entries method
+        self.get_ple_entries()
+        
+        for ple in self.ple_entries:
+            self.init_voucher_balance(ple)
+
+        for ple in self.ple_entries:
+            self.update_voucher_balance(ple)
+
+        delattr(self, "ple_entries")
+
+    def fetch_ple_in_unbuffered_cursor(self):
+        # Use custom get_ple_entries method
+        self.get_ple_entries()
+        
+        for ple in self.ple_entries:
+            self.init_voucher_balance(ple)
+
+        for ple in self.ple_entries:
+            self.update_voucher_balance(ple)
+        delattr(self, "ple_entries")
 
     def get_invoice_details(self):
         self.invoice_details = frappe._dict()
